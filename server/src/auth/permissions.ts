@@ -15,6 +15,9 @@ export const permissions: Record<UserRole, readonly string[]> = {
     'scores:revoke',
     'data:reset',
     'settings:system',
+    'logs:read',
+    'logs:rollback',
+    'logs:delete',
   ],
   TEACHER: [
     'class:update-name',
@@ -28,6 +31,8 @@ export const permissions: Record<UserRole, readonly string[]> = {
     'scores:change',
     'scores:revoke',
     'data:reset',
+    'logs:read',
+    'logs:rollback',
   ],
   OFFICER: [
     'students:seed-score',

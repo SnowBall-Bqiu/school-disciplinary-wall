@@ -1,4 +1,4 @@
-import type { DashboardSettings, ScoreRecordEntity, UserRole } from '@shared/types';
+import type { DashboardSettings, OperationLogEntity, ScoreRecordEntity, UserRole } from '@shared/types';
 
 export interface DashboardResponse {
   classInfo: {
@@ -43,4 +43,9 @@ export interface SessionResponse {
 export interface ExportDataResponse {
   exportedAt: string;
   data: SummaryResponse;
+}
+
+export interface OperationLogsResponse {
+  logs: OperationLogEntity[];
+  total: number;
 }

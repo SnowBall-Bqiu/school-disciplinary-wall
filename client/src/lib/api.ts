@@ -14,3 +14,11 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, token
   }
   return data as T;
 }
+
+export async function apiFetchWithParams<T>(path: string, params: Record<string, number | string>, options: RequestInit = {}, token?: string): Promise<T> {
+  const url = new URL(path, window.location.origin);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, String(value));
+  }
+  return apiFetch<T>(url.toString(), options, token);
+}

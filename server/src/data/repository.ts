@@ -10,6 +10,7 @@ import type {
   DashboardSettings,
   ExportPayload,
   InitPayload,
+  OperationLogEntity,
   ScoreActionPayload,
   ScoreRecordEntity,
   ScoreRuleEntity,
@@ -150,6 +151,7 @@ export class AppRepository {
       'CREATE TABLE IF NOT EXISTS score_records (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, rule_id INTEGER, operator_id INTEGER NOT NULL, change_value INTEGER NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL, batch_id TEXT, is_revoked INTEGER NOT NULL DEFAULT 0, revoked_at TEXT, revoked_by INTEGER, revoke_reason TEXT)',
       'CREATE TABLE IF NOT EXISTS class_info (id INTEGER PRIMARY KEY CHECK (id = 1), class_name TEXT NOT NULL, initial_class_score INTEGER NOT NULL, current_class_score INTEGER NOT NULL)',
       'CREATE TABLE IF NOT EXISTS system_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_at TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, operator_id INTEGER NOT NULL, action TEXT NOT NULL, target_type TEXT NOT NULL, target_id INTEGER, details TEXT, previous_state TEXT, new_state TEXT, created_at TEXT NOT NULL)',
     ];
     for (const sql of statements) {
       engine.run(sql);
@@ -235,62 +237,103 @@ export class AppRepository {
     this.engine().run('INSERT OR REPLACE INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)', [key, value, nowIso()]);
   }
 
-  async getDashboardSettings() {
+  async getDashboardSettings(): Promise<DashboardSettings> {
     const row = this.engine().get<SettingRow>('SELECT * FROM system_settings WHERE setting_key = ?', ['dashboard_settings']);
-    return row ? (JSON.parse(row.setting_value) as DashboardSettings) : defaultDashboardSettings;
+    if (!row) return defaultDashboardSettings;
+    const parsed = JSON.parse(row.setting_value) as Partial<DashboardSettings>;
+    return {
+      ...defaultDashboardSettings,
+      ...parsed,
+      modules: {
+        ...defaultDashboardSettings.modules,
+        ...(parsed.modules ?? {}),
+      },
+    };
   }
 
-  async saveDashboardSettings(settings: DashboardSettings) {
-    await this.upsertSetting('dashboard_settings', JSON.stringify(settings));
-    return settings;
-  }
-
-  async createUser(payload: CreateUserPayload) {
+  async createUser(payload: CreateUserPayload, operatorId?: number) {
     this.engine().run('INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)', [payload.username, hashPassword(payload.password), payload.role, nowIso()]);
+    const result = this.engine().get<{ id: number }>('SELECT last_insert_rowid() as id');
+    if (operatorId) {
+      await this.logOperation(operatorId, 'CREATE', 'user', result?.id, `创建用户: ${payload.username} (${payload.role})`, undefined, { username: payload.username, role: payload.role });
+    }
     return this.getSummary();
   }
 
-  async updateUser(id: number, payload: UpdateUserPayload) {
+  async updateUser(id: number, payload: UpdateUserPayload, operatorId?: number) {
     const current = this.engine().get<UserRow>('SELECT * FROM users WHERE id = ?', [id]);
     if (!current) {
       throw new Error('用户不存在。');
     }
     const passwordHash = payload.password ? hashPassword(payload.password) : current.password_hash;
     this.engine().run('UPDATE users SET username = ?, role = ?, password_hash = ? WHERE id = ?', [payload.username, payload.role, passwordHash, id]);
+    if (operatorId) {
+      await this.logOperation(operatorId, 'UPDATE', 'user', id, `更新用户: ${payload.username}`, { username: current.username, role: current.role }, { username: payload.username, role: payload.role });
+    }
     return this.getSummary();
   }
 
-  async deleteUser(id: number) {
+  async deleteUser(id: number, operatorId?: number) {
+    const current = this.engine().get<UserRow>('SELECT * FROM users WHERE id = ?', [id]);
+    if (current && operatorId) {
+      await this.logOperation(operatorId, 'DELETE', 'user', id, `删除用户: ${current.username}`, { username: current.username, role: current.role, password_hash: current.password_hash });
+    }
     this.engine().run('DELETE FROM users WHERE id = ?', [id]);
     return this.getSummary();
   }
 
-  async createStudent(payload: StudentPayload) {
+  async createStudent(payload: StudentPayload, operatorId?: number) {
     this.engine().run('INSERT INTO students (student_no, name, initial_score, current_score, created_at) VALUES (?, ?, ?, ?, ?)', [payload.student_no, payload.name, payload.initial_score, payload.initial_score, nowIso()]);
+    const result = this.engine().get<{ id: number }>('SELECT last_insert_rowid() as id');
+    if (operatorId) {
+      await this.logOperation(operatorId, 'CREATE', 'student', result?.id, `添加学生: ${payload.name} (${payload.student_no})`, undefined, { student_no: payload.student_no, name: payload.name, initial_score: payload.initial_score });
+    }
     return this.recalculateClassScore();
   }
 
-  async updateStudent(id: number, payload: StudentPayload) {
+  async updateStudent(id: number, payload: StudentPayload, operatorId?: number) {
+    const current = this.engine().get<StudentEntity>('SELECT * FROM students WHERE id = ?', [id]);
+    if (current && operatorId) {
+      await this.logOperation(operatorId, 'UPDATE', 'student', id, `更新学生: ${payload.name}`, { student_no: current.student_no, name: current.name, initial_score: current.initial_score }, { student_no: payload.student_no, name: payload.name, initial_score: payload.initial_score });
+    }
     this.engine().run('UPDATE students SET student_no = ?, name = ?, initial_score = ? WHERE id = ?', [payload.student_no, payload.name, payload.initial_score, id]);
     return this.recalculateStudentScores();
   }
 
-  async deleteStudent(id: number) {
+  async deleteStudent(id: number, operatorId?: number) {
+    const current = this.engine().get<StudentEntity>('SELECT * FROM students WHERE id = ?', [id]);
+    if (current && operatorId) {
+      await this.logOperation(operatorId, 'DELETE', 'student', id, `删除学生: ${current.name} (${current.student_no})`, { student_no: current.student_no, name: current.name, initial_score: current.initial_score, current_score: current.current_score });
+    }
     this.engine().run('DELETE FROM score_records WHERE student_id = ?', [id]);
     this.engine().run('DELETE FROM students WHERE id = ?', [id]);
     return this.recalculateClassScore();
   }
 
-  async saveRule(payload: ScoreRulePayload, id?: number) {
+  async saveRule(payload: ScoreRulePayload, id?: number, operatorId?: number) {
+    let ruleId = id;
     if (id) {
+      const current = this.engine().get<ScoreRuleEntity>('SELECT * FROM score_rules WHERE id = ?', [id]);
+      if (current && operatorId) {
+        await this.logOperation(operatorId, 'UPDATE', 'rule', id, `更新规则: ${payload.name}`, { type: current.type, name: current.name, score_value: current.score_value }, payload);
+      }
       this.engine().run('UPDATE score_rules SET type = ?, name = ?, score_value = ? WHERE id = ?', [payload.type, payload.name, payload.score_value, id]);
     } else {
       this.engine().run('INSERT INTO score_rules (type, name, score_value, created_at) VALUES (?, ?, ?, ?)', [payload.type, payload.name, payload.score_value, nowIso()]);
+      const result = this.engine().get<{ id: number }>('SELECT last_insert_rowid() as id');
+      ruleId = result?.id;
+      if (operatorId) {
+        await this.logOperation(operatorId, 'CREATE', 'rule', ruleId, `添加规则: ${payload.name}`, undefined, payload);
+      }
     }
     return this.getSummary();
   }
 
-  async deleteRule(id: number) {
+  async deleteRule(id: number, operatorId?: number) {
+    const current = this.engine().get<ScoreRuleEntity>('SELECT * FROM score_rules WHERE id = ?', [id]);
+    if (current && operatorId) {
+      await this.logOperation(operatorId, 'DELETE', 'rule', id, `删除规则: ${current.name}`, { type: current.type, name: current.name, score_value: current.score_value });
+    }
     this.engine().run('DELETE FROM score_rules WHERE id = ?', [id]);
     return this.getSummary();
   }
@@ -300,30 +343,60 @@ export class AppRepository {
     for (const studentId of payload.studentIds) {
       this.engine().run('INSERT INTO score_records (student_id, rule_id, operator_id, change_value, reason, created_at, batch_id, is_revoked) VALUES (?, ?, ?, ?, ?, ?, ?, 0)', [studentId, payload.ruleId ?? null, operatorId, payload.changeValue, payload.reason, nowIso(), batchId]);
     }
+    const studentNames = payload.studentIds.length <= 3
+      ? payload.studentIds.join(', ')
+      : `${payload.studentIds.slice(0, 3).join(',')}...`;
+    await this.logOperation(operatorId, 'APPLY_SCORE', 'score_record', null, `加扣分: ${payload.changeValue > 0 ? '+' : ''}${payload.changeValue}分, 学生: ${studentNames}, 原因: ${payload.reason}`);
     return this.recalculateStudentScores();
   }
 
   async adjustClassScore(changeValue: number, operatorId: number, reason: string) {
     this.engine().run('INSERT INTO score_records (student_id, rule_id, operator_id, change_value, reason, created_at, batch_id, is_revoked) VALUES (?, ?, ?, ?, ?, ?, ?, 0)', [0, null, operatorId, changeValue, reason, nowIso(), randomId('class')]);
+    await this.logOperation(operatorId, 'ADJUST_CLASS_SCORE', 'class_info', 1, `调整班级总分: ${changeValue > 0 ? '+' : ''}${changeValue}, 原因: ${reason}`);
     return this.recalculateClassScore();
   }
 
   async revokeScoreRecord(id: number, revokedBy: number, revokeReason: string) {
     this.engine().run('UPDATE score_records SET is_revoked = 1, revoked_at = ?, revoked_by = ?, revoke_reason = ? WHERE id = ?', [nowIso(), revokedBy, revokeReason, id]);
+    await this.logOperation(revokedBy, 'UPDATE', 'score_record', id, `撤销记录, 原因: ${revokeReason}`);
     return this.recalculateStudentScores();
   }
 
-  async updateClassInfo(payload: { class_name: string; initial_class_score: number }) {
+  async deleteScoreRecord(id: number, operatorId?: number) {
+    if (operatorId) {
+      await this.logOperation(operatorId, 'DELETE', 'score_record', id, '删除评分记录');
+    }
+    this.engine().run('DELETE FROM score_records WHERE id = ?', [id]);
+    return this.recalculateStudentScores();
+  }
+
+  async updateClassInfo(payload: { class_name: string; initial_class_score: number }, operatorId?: number) {
+    const current = this.engine().get<ClassInfoEntity>('SELECT * FROM class_info WHERE id = 1');
+    if (current && operatorId) {
+      await this.logOperation(operatorId, 'UPDATE', 'class_info', 1, `更新班级信息: ${payload.class_name}`, { class_name: current.class_name, initial_class_score: current.initial_class_score }, payload);
+    }
     this.engine().run('UPDATE class_info SET class_name = ?, initial_class_score = ? WHERE id = 1', [payload.class_name, payload.initial_class_score]);
     return this.recalculateClassScore();
   }
 
-  async resetAll() {
+  async resetAll(operatorId?: number) {
+    if (operatorId) {
+      await this.logOperation(operatorId, 'RESET', 'system', null, '重置班级数据');
+    }
     this.engine().run('DELETE FROM students');
     this.engine().run('DELETE FROM score_rules');
     this.engine().run('DELETE FROM score_records');
     await this.upsertSetting('dashboard_settings', JSON.stringify(defaultDashboardSettings));
     return this.recalculateClassScore();
+  }
+
+  async saveDashboardSettings(settings: DashboardSettings, operatorId?: number): Promise<DashboardSettings> {
+    const current = await this.getDashboardSettings();
+    await this.upsertSetting('dashboard_settings', JSON.stringify(settings));
+    if (operatorId) {
+      await this.logOperation(operatorId, 'UPDATE', 'settings', null, '更新大屏设置', current, settings);
+    }
+    return settings;
   }
 
   async exportData(): Promise<ExportPayload> {
@@ -346,7 +419,10 @@ export class AppRepository {
   }
 
 
-  async importData(payload: ExportPayload) {
+  async importData(payload: ExportPayload, operatorId?: number) {
+    if (operatorId) {
+      await this.logOperation(operatorId, 'IMPORT', 'system', null, '导入数据');
+    }
     const db = this.engine();
     for (const table of ['score_records', 'score_rules', 'students', 'users', 'class_info', 'system_settings']) {
       db.run(`DELETE FROM ${table}`);
@@ -399,6 +475,337 @@ export class AppRepository {
     }
     return this.getSummary();
   }
+
+  // 操作日志相关方法
+  async logOperation(operatorId: number, action: string, targetType: string, targetId?: number | null, details?: string | null, previousState?: unknown, newState?: unknown) {
+    this.engine().run(
+      'INSERT INTO operation_logs (operator_id, action, target_type, target_id, details, previous_state, new_state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [operatorId, action, targetType, targetId ?? null, details ?? null, previousState ? JSON.stringify(previousState) : null, newState ? JSON.stringify(newState) : null, nowIso()]
+    );
+  }
+
+  async getOperationLogs(limit = 100, offset = 0): Promise<{ logs: OperationLogEntity[]; total: number }> {
+    type LogRow = OperationLogEntity & { previous_state: string | null; new_state: string | null };
+    const logs = this.engine().all<LogRow>(
+      'SELECT * FROM operation_logs ORDER BY id DESC LIMIT ? OFFSET ?',
+      [limit, offset]
+    );
+    const countResult = this.engine().get<{ total: number }>('SELECT COUNT(*) as total FROM operation_logs');
+    return {
+      logs: logs.map((log: LogRow) => ({
+        ...log,
+        previous_state: log.previous_state ? JSON.parse(log.previous_state) : null,
+        new_state: log.new_state ? JSON.parse(log.new_state) : null,
+      })),
+      total: Number(countResult?.total ?? 0),
+    };
+  }
+
+  async getOperationLogById(id: number): Promise<OperationLogEntity | null> {
+    const log = this.engine().get<OperationLogEntity & { previous_state: string | null; new_state: string | null }>('SELECT * FROM operation_logs WHERE id = ?', [id]);
+    if (!log) return null;
+    return {
+      ...log,
+      previous_state: log.previous_state ? JSON.parse(log.previous_state) : null,
+      new_state: log.new_state ? JSON.parse(log.new_state) : null,
+    };
+  }
+
+  async rollbackOperation(logId: number, operatorId: number): Promise<boolean> {
+    const log = await this.getOperationLogById(logId);
+    if (!log) {
+      return false;
+    }
+
+    // ROLLBACK 类型的记录使用取消回滚逻辑
+    if (log.action === 'ROLLBACK') {
+      return this.cancelRollback(logId, operatorId);
+    }
+
+    // 对于 UPDATE 和 DELETE 操作需要 previous_state
+    if ((log.action === 'UPDATE' || log.action === 'DELETE') && !log.previous_state) {
+      return false;
+    }
+
+    // CANCEL_ROLLBACK 不能再回滚
+    if (log.action === 'CANCEL_ROLLBACK') {
+      return false;
+    }
+
+
+    const previousState = log.previous_state as Record<string, unknown> | null;
+    const newState = log.new_state as Record<string, unknown> | null;
+
+    switch (log.target_type) {
+      case 'student':
+        if (log.action === 'CREATE' && log.target_id !== null && newState) {
+          this.engine().run('DELETE FROM students WHERE id = ?', [log.target_id]);
+        } else if (log.action === 'UPDATE' && log.target_id !== null && previousState) {
+          this.engine().run('UPDATE students SET student_no = ?, name = ?, initial_score = ? WHERE id = ?', [
+            String(previousState.student_no ?? ''),
+            String(previousState.name ?? ''),
+            Number(previousState.initial_score ?? 0),
+            log.target_id,
+          ]);
+        } else if (log.action === 'DELETE' && log.target_id !== null && previousState) {
+          this.engine().run('INSERT INTO students (id, student_no, name, initial_score, current_score, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
+            log.target_id,
+            String(previousState.student_no ?? ''),
+            String(previousState.name ?? ''),
+            Number(previousState.initial_score ?? 0),
+            Number(previousState.current_score ?? 0),
+            nowIso(),
+          ]);
+        } else {
+          return false;
+        }
+        await this.recalculateStudentScores();
+        break;
+
+      case 'rule':
+        if (log.action === 'CREATE' && log.target_id !== null && newState) {
+          this.engine().run('DELETE FROM score_rules WHERE id = ?', [log.target_id]);
+        } else if (log.action === 'UPDATE' && log.target_id !== null && previousState) {
+          this.engine().run('UPDATE score_rules SET type = ?, name = ?, score_value = ? WHERE id = ?', [
+            String(previousState.type ?? ''),
+            String(previousState.name ?? ''),
+            Number(previousState.score_value ?? 0),
+            log.target_id,
+          ]);
+        } else if (log.action === 'DELETE' && log.target_id !== null && previousState) {
+          this.engine().run('INSERT INTO score_rules (id, type, name, score_value, created_at) VALUES (?, ?, ?, ?, ?)', [
+            log.target_id,
+            String(previousState.type ?? ''),
+            String(previousState.name ?? ''),
+            Number(previousState.score_value ?? 0),
+            nowIso(),
+          ]);
+        } else {
+          return false;
+        }
+        break;
+
+      case 'user':
+        if (log.action === 'CREATE' && log.target_id !== null && newState) {
+          this.engine().run('DELETE FROM users WHERE id = ?', [log.target_id]);
+        } else if (log.action === 'UPDATE' && log.target_id !== null && previousState) {
+          this.engine().run('UPDATE users SET username = ?, role = ? WHERE id = ?', [
+            String(previousState.username ?? ''),
+            String(previousState.role ?? ''),
+            log.target_id,
+          ]);
+        } else if (log.action === 'DELETE' && log.target_id !== null && previousState) {
+          this.engine().run('INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)', [
+            log.target_id,
+            String(previousState.username ?? ''),
+            String(previousState.password_hash ?? hashPassword('1234')),
+            String(previousState.role ?? 'OFFICER'),
+            nowIso(),
+          ]);
+        } else {
+          return false;
+        }
+        break;
+
+      case 'score_record':
+        if (log.action === 'CREATE' && log.target_id !== null) {
+          this.engine().run('UPDATE score_records SET is_revoked = 1, revoked_at = ?, revoked_by = ?, revoke_reason = ? WHERE id = ?', [nowIso(), operatorId, '回滚操作', log.target_id]);
+          await this.recalculateStudentScores();
+        }
+        break;
+
+      case 'class_info':
+        if (previousState) {
+          this.engine().run('UPDATE class_info SET class_name = ?, initial_class_score = ? WHERE id = 1', [
+            String(previousState.class_name ?? ''),
+            Number(previousState.initial_class_score ?? 0),
+          ]);
+          await this.recalculateClassScore();
+        } else {
+          return false;
+        }
+        break;
+
+      case 'settings':
+        if (previousState) {
+          this.engine().run('INSERT OR REPLACE INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)', [
+            log.target_id !== null ? String(log.target_id) : log.details ?? '',
+            JSON.stringify(previousState),
+            nowIso(),
+          ]);
+        } else {
+          return false;
+        }
+        break;
+
+      default:
+        return false;
+    }
+
+    await this.logOperation(operatorId, 'ROLLBACK', log.target_type, log.target_id ?? undefined, `回滚操作 #${logId}`);
+    return true;
+  }
+
+  async cancelRollback(logId: number, operatorId: number): Promise<boolean> {
+    const log = await this.getOperationLogById(logId);
+    if (!log || log.action !== 'ROLLBACK') {
+      return false;
+    }
+
+    // 从 details 字段解析被回滚的原始操作记录ID
+    // details 格式: "回滚操作 #{originalLogId}"
+    const match = log.details?.match(/回滚操作 #(\d+)/);
+    if (!match) {
+      return false;
+    }
+    const targetLogId = Number(match[1]);
+    if (!targetLogId) {
+      return false;
+    }
+
+    const targetLog = await this.getOperationLogById(targetLogId);
+    if (!targetLog) {
+      return false;
+    }
+
+    // 根据目标操作类型执行恢复
+    switch (targetLog.target_type) {
+      case 'student': {
+        if (targetLog.action === 'CREATE' && targetLog.new_state) {
+          // 恢复创建操作：重新创建学生
+          const newState = targetLog.new_state as Record<string, unknown>;
+          this.engine().run('INSERT INTO students (id, student_no, name, initial_score, current_score, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
+            targetLog.target_id ?? Date.now(),
+            String(newState.student_no ?? ''),
+            String(newState.name ?? ''),
+            Number(newState.initial_score ?? 0),
+            Number(newState.current_score ?? 0),
+            nowIso(),
+          ]);
+        } else if (targetLog.action === 'DELETE' && targetLog.previous_state) {
+          // 恢复删除操作：删除学生
+          this.engine().run('DELETE FROM students WHERE id = ?', [targetLog.target_id]);
+        } else if (targetLog.action === 'UPDATE' && targetLog.new_state && targetLog.previous_state) {
+          // 恢复更新操作：恢复新状态
+          const newState = targetLog.new_state as Record<string, unknown>;
+          this.engine().run('UPDATE students SET student_no = ?, name = ?, initial_score = ? WHERE id = ?', [
+            String(newState.student_no ?? ''),
+            String(newState.name ?? ''),
+            Number(newState.initial_score ?? 0),
+            targetLog.target_id,
+          ]);
+        }
+        await this.recalculateStudentScores();
+        break;
+      }
+
+      case 'rule': {
+        if (targetLog.action === 'CREATE' && targetLog.new_state) {
+          const newState = targetLog.new_state as Record<string, unknown>;
+          this.engine().run('INSERT INTO score_rules (id, type, name, score_value, created_at) VALUES (?, ?, ?, ?, ?)', [
+            targetLog.target_id ?? Date.now(),
+            String(newState.type ?? 'DEDUCT'),
+            String(newState.name ?? ''),
+            Number(newState.score_value ?? 0),
+            nowIso(),
+          ]);
+        } else if (targetLog.action === 'DELETE' && targetLog.previous_state) {
+          this.engine().run('DELETE FROM score_rules WHERE id = ?', [targetLog.target_id]);
+        } else if (targetLog.action === 'UPDATE' && targetLog.new_state && targetLog.previous_state) {
+          const newState = targetLog.new_state as Record<string, unknown>;
+          this.engine().run('UPDATE score_rules SET type = ?, name = ?, score_value = ? WHERE id = ?', [
+            String(newState.type ?? ''),
+            String(newState.name ?? ''),
+            Number(newState.score_value ?? 0),
+            targetLog.target_id,
+          ]);
+        }
+        break;
+      }
+
+      case 'user': {
+        if (targetLog.action === 'CREATE' && targetLog.new_state) {
+          const newState = targetLog.new_state as Record<string, unknown>;
+          this.engine().run('INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)', [
+            targetLog.target_id ?? Date.now(),
+            String(newState.username ?? ''),
+            String(newState.password_hash ?? hashPassword('1234')),
+            String(newState.role ?? 'OFFICER'),
+            nowIso(),
+          ]);
+        } else if (targetLog.action === 'DELETE' && targetLog.previous_state) {
+          this.engine().run('DELETE FROM users WHERE id = ?', [targetLog.target_id]);
+        } else if (targetLog.action === 'UPDATE' && targetLog.new_state && targetLog.previous_state) {
+          const newState = targetLog.new_state as Record<string, unknown>;
+          this.engine().run('UPDATE users SET username = ?, role = ? WHERE id = ?', [
+            String(newState.username ?? ''),
+            String(newState.role ?? ''),
+            targetLog.target_id,
+          ]);
+        }
+        break;
+      }
+
+      case 'score_record': {
+        if (targetLog.action === 'CREATE' && targetLog.target_id !== null) {
+          // 恢复评分记录：撤销撤销状态
+          this.engine().run('UPDATE score_records SET is_revoked = 0, revoked_at = NULL, revoked_by = NULL, revoke_reason = NULL WHERE id = ?', [targetLog.target_id]);
+          await this.recalculateStudentScores();
+        }
+        break;
+      }
+
+      case 'class_info': {
+        if (targetLog.new_state && targetLog.previous_state) {
+          const newState = targetLog.new_state as Record<string, unknown>;
+          this.engine().run('UPDATE class_info SET class_name = ?, initial_class_score = ? WHERE id = 1', [
+            String(newState.class_name ?? ''),
+            Number(newState.initial_class_score ?? 0),
+          ]);
+          await this.recalculateClassScore();
+        }
+        break;
+      }
+
+      case 'settings': {
+        if (targetLog.new_state && targetLog.previous_state) {
+          this.engine().run('INSERT OR REPLACE INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)', [
+            targetLog.target_id !== null ? String(targetLog.target_id) : targetLog.details ?? '',
+            JSON.stringify(targetLog.new_state),
+            nowIso(),
+          ]);
+        }
+        break;
+      }
+
+      default:
+        return false;
+    }
+
+    // 记录取消回滚操作
+    await this.logOperation(operatorId, 'CANCEL_ROLLBACK', log.target_type, log.target_id ?? undefined, `取消回滚操作 #${logId}`);
+    return true;
+  }
+
+  async deleteOperationLog(logId: number): Promise<boolean> {
+    try {
+      this.engine().run('DELETE FROM operation_logs WHERE id = ?', [logId]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async deleteOperationLogs(logIds: number[]): Promise<boolean> {
+    try {
+      const placeholders = logIds.map(() => '?').join(',');
+      this.engine().run(`DELETE FROM operation_logs WHERE id IN (${placeholders})`, logIds);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 export const repository = new AppRepository();
+

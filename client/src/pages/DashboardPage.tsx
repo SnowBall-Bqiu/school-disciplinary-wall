@@ -17,7 +17,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import BrightnessAutoIcon from '@mui/icons-material/BrightnessAuto';
 import { useEffect, useMemo, useState } from 'react';
-import { useTheme } from '@mui/material/styles';
+import { useTheme, alpha } from '@mui/material/styles';
 import { useThemeMode } from '../context/theme-mode-context';
 import { apiFetch } from '../lib/api';
 import type { DashboardResponse } from '../types/api';
@@ -32,15 +32,15 @@ const moduleIdMap: Record<string, string> = {
   bulletin: 'bulletin',
 };
 
-const panelSx = {
+const panelSx = (theme: import('@mui/material/styles').Theme, moduleOpacity?: number) => ({
   p: 2.5,
   height: '100%',
   borderRadius: 1,
-  bgcolor: 'background.paper',
+  bgcolor: moduleOpacity !== undefined ? alpha(theme.palette.background.paper, moduleOpacity) : 'background.paper',
   border: '1px solid',
   borderColor: 'divider',
   boxShadow: '0 4px 12px rgba(15, 23, 42, 0.04)',
-};
+});
 
 function formatClock(date: Date) {
   return new Intl.DateTimeFormat('zh-CN', {
@@ -64,6 +64,7 @@ export function DashboardPage() {
   const darkOverlayEnd = Math.min(1, overlayOpacity + 0.26);
   const lightOverlayStart = Math.min(1, Math.max(0, overlayOpacity - 0.16));
   const lightOverlayEnd = Math.min(1, overlayOpacity + 0.06);
+  const moduleOpacity = data?.dashboardSettings.moduleOpacity ?? 0.85;
 
 
   useEffect(() => {
@@ -136,38 +137,38 @@ export function DashboardPage() {
   const cards = useMemo(
     () => ({
       clock: (
-        <Paper sx={{ ...panelSx, boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx.boxShadow }}>
+        <Paper sx={{ ...panelSx(theme, moduleOpacity), boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx(theme, moduleOpacity).boxShadow }}>
           <Stack spacing={1.5} height="100%" justifyContent="space-between">
             <Box>
               <Typography variant="overline" color="text.secondary">当前时间</Typography>
               <Typography variant="h4" fontWeight={800} mt={1.5}>{formatClock(clock)}</Typography>
             </Box>
-            <Chip size="small" label="实时刷新" color="primary" sx={{ alignSelf: 'flex-start' }} />
+          {/*  <Chip size="small" label="实时刷新" color="primary" sx={{ alignSelf: 'flex-start' }} /> */}
           </Stack>
         </Paper>
       ),
       weather: (
-        <Paper sx={{ ...panelSx, boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx.boxShadow }}>
+        <Paper sx={{ ...panelSx(theme, moduleOpacity), boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx(theme, moduleOpacity).boxShadow }}>
           <Stack spacing={1.5} height="100%" justifyContent="space-between">
             <Box>
               <Typography variant="overline" color="text.secondary">实时天气</Typography>
               <Typography variant="h4" fontWeight={800} mt={1.5}>{weatherText}</Typography>
             </Box>
-            <Typography variant="body2" color="text.secondary">接口失效时自动降级显示。</Typography>
+           {/* <Typography variant="body2" color="text.secondary">接口失效时自动降级显示。</Typography> */}
           </Stack>
         </Paper>
       ),
       quote: (
-        <Paper sx={{ ...panelSx, boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx.boxShadow }}>
+        <Paper sx={{ ...panelSx(theme, moduleOpacity), boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx(theme, moduleOpacity).boxShadow }}>
           <Stack spacing={2} height="100%">
             <Typography variant="overline" color="text.secondary">每日一言</Typography>
             <Alert severity="info" sx={{ borderRadius: 2 }}>{quote}</Alert>
-            <Typography variant="body2" color="text.secondary">支持离线内置文案展示。</Typography>
+            {/*<Typography variant="body2" color="text.secondary">支持离线内置文案展示。</Typography> */}
           </Stack>
         </Paper>
       ),
       classScore: (
-        <Paper sx={{ ...panelSx, bgcolor: 'primary.main', color: 'primary.contrastText', borderColor: 'primary.light', boxShadow: theme.palette.mode === 'dark' ? '0 12px 28px rgba(37, 99, 235, 0.22)' : '0 4px 12px rgba(15, 23, 42, 0.04)' }}>
+        <Paper sx={{ ...panelSx(theme, moduleOpacity), bgcolor: 'primary.main', color: 'primary.contrastText', borderColor: 'primary.light', boxShadow: theme.palette.mode === 'dark' ? '0 12px 28px rgba(37, 99, 235, 0.22)' : '0 4px 12px rgba(15, 23, 42, 0.04)' }}>
           <Stack spacing={1.5} height="100%" justifyContent="space-between">
             <Typography variant="overline" sx={{ opacity: 0.84 }}>当前班级总分</Typography>
             <Typography variant="h1" fontWeight={900} lineHeight={1}>{data?.classInfo?.current_class_score ?? '--'}</Typography>
@@ -176,7 +177,7 @@ export function DashboardPage() {
         </Paper>
       ),
       ranking: (
-        <Paper sx={{ ...panelSx, boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx.boxShadow }}>
+        <Paper sx={{ ...panelSx(theme, moduleOpacity), boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx(theme, moduleOpacity).boxShadow }}>
           <Stack spacing={2}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography variant="h6" fontWeight={800}>德育分排行榜</Typography>
@@ -209,7 +210,7 @@ export function DashboardPage() {
         </Paper>
       ),
       bulletin: (
-        <Paper sx={{ ...panelSx, boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx.boxShadow }}>
+        <Paper sx={{ ...panelSx(theme, moduleOpacity), boxShadow: theme.palette.mode === 'dark' ? '0 10px 24px rgba(2, 6, 23, 0.28)' : panelSx(theme, moduleOpacity).boxShadow }}>
           <Stack spacing={1.5} height="100%">
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography variant="h6" fontWeight={800}>今日通报</Typography>
@@ -234,7 +235,7 @@ export function DashboardPage() {
         </Paper>
       ),
     }),
-    [clock, data, quote, topStudents, bottomStudents, weatherText, theme.palette.mode],
+    [clock, data, quote, topStudents, bottomStudents, weatherText, theme.palette.mode, moduleOpacity],
   );
 
   return (
@@ -277,7 +278,11 @@ export function DashboardPage() {
             <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'center' }} spacing={2}>
               <Box>
                 <Typography variant="h4" fontWeight={900}>{data?.classInfo?.class_name ?? '班级大屏'}</Typography>
-                <Typography variant="body2" color="text.secondary" mt={0.5}>与后台统一的系统风格展示页，适合教室一体机常驻展示。</Typography>
+                {data?.dashboardSettings?.showClassSlogan !== false && (
+                  <Typography variant="body2" color="text.secondary" mt={0.5}>
+                    {data?.dashboardSettings?.classSlogan || '与后台统一的系统风格展示页，适合教室一体机常驻展示。'}
+                  </Typography>
+                )}
               </Box>
               <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                 <Button

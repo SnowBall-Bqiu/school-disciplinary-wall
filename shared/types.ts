@@ -78,6 +78,9 @@ export interface DashboardSettings {
   layout: DashboardLayoutItem[];
   rankingSize: number;
   reminderSize: number;
+  classSlogan: string;
+  showClassSlogan: boolean;
+  moduleOpacity: number;
 }
 
 
@@ -130,4 +133,16 @@ export interface ExportPayload {
   scoreRecords: ScoreRecordEntity[];
   settings: Record<string, string>;
   storageMode: StorageMode;
+}
+
+export interface OperationLogEntity {
+  id: number;
+  operator_id: number;
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'ROLLBACK' | 'CANCEL_ROLLBACK' | 'APPLY_SCORE' | 'ADJUST_CLASS_SCORE' | 'IMPORT' | 'EXPORT' | 'RESET';
+  target_type: 'student' | 'rule' | 'user' | 'score_record' | 'class_info' | 'settings' | 'system';
+  target_id: number | null;
+  details: string | null;
+  previous_state: unknown | null;
+  new_state: unknown | null;
+  created_at: string;
 }

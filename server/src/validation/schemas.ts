@@ -69,52 +69,10 @@ export const dashboardSettingsSchema = z.object({
   ),
   rankingSize: z.number().int().min(3).max(20),
   reminderSize: z.number().int().min(1).max(10),
+  classSlogan: z.string().optional(),
+  showClassSlogan: z.boolean().optional(),
+  moduleOpacity: z.number().min(0).max(1).optional(),
 });
 
 
-export const importSchema = z.object({
-  classInfo: z.object({
-    id: z.number().int(),
-    class_name: z.string(),
-    initial_class_score: z.number().int(),
-    current_class_score: z.number().int(),
-  }).nullable(),
-  users: z.array(z.object({
-    id: z.number().int().optional(),
-    username: z.string(),
-    role: z.enum(['SUPER_ADMIN', 'TEACHER', 'OFFICER']),
-    created_at: z.string(),
-    password_hash: z.string().optional(),
-  })),
-  students: z.array(z.object({
-    id: z.number().int(),
-    student_no: z.string(),
-    name: z.string(),
-    initial_score: z.number().int(),
-    current_score: z.number().int(),
-    created_at: z.string(),
-  })),
-  scoreRules: z.array(z.object({
-    id: z.number().int(),
-    type: z.enum(['ADD', 'DEDUCT']),
-    name: z.string(),
-    score_value: z.number().int(),
-    created_at: z.string(),
-  })),
-  scoreRecords: z.array(z.object({
-    id: z.number().int(),
-    student_id: z.number().int(),
-    rule_id: z.number().int().nullable(),
-    operator_id: z.number().int(),
-    change_value: z.number().int(),
-    reason: z.string(),
-    created_at: z.string(),
-    batch_id: z.string().nullable(),
-    is_revoked: z.number().int(),
-    revoked_at: z.string().nullable(),
-    revoked_by: z.number().int().nullable(),
-    revoke_reason: z.string().nullable(),
-  })),
-  settings: z.record(z.string()),
-  storageMode: z.enum(['sqlite', 'sqljs']),
-});
+

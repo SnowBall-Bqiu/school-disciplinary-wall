@@ -23,6 +23,9 @@ export const defaultDashboardSettings: DashboardSettings = {
   ],
   rankingSize: 10,
   reminderSize: 3,
+  classSlogan: '与后台统一的系统风格展示页，适合教室一体机常驻展示。',
+  showClassSlogan: true,
+  moduleOpacity: 0.85,
 };
 
 
