@@ -9,8 +9,9 @@ systemRouter.get('/summary', async (_req, res) => {
 });
 
 systemRouter.get('/export', requirePermission('settings:system'), async (req, res) => {
-  await repository.logOperation(req.authUser?.id ?? 0, 'EXPORT', 'system', null, '导出数据');
-  res.json({ exportedAt: new Date().toISOString(), data: await repository.exportData(req.authUser?.id) });
+  const operatorId = req.authUser!.id;
+  await repository.logOperation(operatorId, 'EXPORT', 'system', null, '导出数据');
+  res.json({ exportedAt: new Date().toISOString(), data: await repository.exportData(operatorId) });
 });
 
 systemRouter.post('/storage-mode', requirePermission('settings:system'), async (req, res) => {
@@ -19,11 +20,25 @@ systemRouter.post('/storage-mode', requirePermission('settings:system'), async (
     res.status(400).json({ message: '存储模式必须为 sqlite 或 sqljs。' });
     return;
   }
-  await repository.logOperation(req.authUser?.id ?? 0, 'UPDATE', 'settings', null, `切换存储模式为: ${mode}`);
+  const operatorId = req.authUser!.id;
+  await repository.logOperation(operatorId, 'UPDATE', 'settings', null, `切换存储模式为: ${mode}`);
   await repository.setStorageMode(mode);
   res.json(await repository.getSummary());
 });
 
 systemRouter.post('/reset', requirePermission('data:reset'), async (req, res) => {
   res.json(await repository.resetAll(req.authUser?.id));
+});
+
+systemRouter.post('/import', requirePermission('settings:system'), async (req, res) => {
+  try {
+    const payload = req.body?.data;
+    if (!payload) {
+      res.status(400).json({ message: '缺少导入数据。' });
+      return;
+    }
+    res.json(await repository.importData(payload, req.authUser?.id));
+  } catch (error) {
+    res.status(400).json({ message: error instanceof Error ? error.message : '导入失败。' });
+  }
 });

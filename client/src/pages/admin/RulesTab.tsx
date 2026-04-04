@@ -16,6 +16,7 @@ export function RulesTab({ ruleForm, filteredRules, onRuleFormChange, onSubmit, 
           </TextField>
           <TextField label="规则名称" value={ruleForm.name} onChange={(e) => onRuleFormChange((prev) => ({ ...prev, name: e.target.value }))} />
           <TextField label="默认分值" type="number" value={ruleForm.score_value} onChange={(e) => onRuleFormChange((prev) => ({ ...prev, score_value: Number(e.target.value) }))} />
+          <TextField label="班级扣分" type="number" value={ruleForm.class_score_value} onChange={(e) => onRuleFormChange((prev) => ({ ...prev, class_score_value: Number(e.target.value) }))} required />
           <Stack direction="row" spacing={1}>
             <Button variant="contained" onClick={onSubmit}>保存规则</Button>
             {ruleForm.id ? <Button onClick={onReset}>取消编辑</Button> : null}
@@ -26,16 +27,17 @@ export function RulesTab({ ruleForm, filteredRules, onRuleFormChange, onSubmit, 
         <Card><CardContent>
           <Typography variant="h6" fontWeight={800}>规则列表</Typography>
           <Table>
-            <TableHead><TableRow><TableCell>名称</TableCell><TableCell>类型</TableCell><TableCell>分值</TableCell><TableCell align="right">操作</TableCell></TableRow></TableHead>
+            <TableHead><TableRow><TableCell>名称</TableCell><TableCell>类型</TableCell><TableCell>个人分值</TableCell><TableCell>班级扣分</TableCell><TableCell align="right">操作</TableCell></TableRow></TableHead>
             <TableBody>
               {filteredRules.map((rule) => (
                 <TableRow key={rule.id} hover>
                   <TableCell>{rule.name}</TableCell>
                   <TableCell>{rule.type === 'ADD' ? '加分' : '扣分'}</TableCell>
                   <TableCell>{rule.type === 'ADD' ? '+' : '-'}{rule.score_value}</TableCell>
+                  <TableCell>{rule.class_score_value}</TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
-                      <IconButton onClick={() => onRuleFormChange(rule)}><EditIcon /></IconButton>
+                      <IconButton onClick={() => onRuleFormChange({ ...rule, class_score_value: rule.class_score_value ?? 1 })}><EditIcon /></IconButton>
                       <IconButton color="error" onClick={() => onDelete(rule.id)}><DeleteIcon /></IconButton>
                     </Stack>
                   </TableCell>

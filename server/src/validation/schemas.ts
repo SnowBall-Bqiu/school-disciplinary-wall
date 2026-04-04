@@ -35,14 +35,16 @@ export const studentSchema = z.object({
 export const ruleSchema = z.object({
   type: z.enum(['ADD', 'DEDUCT']),
   name: z.string().min(1),
-  score_value: z.number().int().positive(),
+  score_value: z.number().positive(),
+  class_score_value: z.number().positive(),
 });
 
 export const scoreActionSchema = z.object({
   studentIds: z.array(z.number().int()).min(1),
   ruleId: z.number().int().nullable().optional(),
   reason: z.string().min(1),
-  changeValue: z.number().int(),
+  changeValue: z.number().refine((val) => val !== 0, { message: '分值变动不能为 0' }),
+  classChangeValue: z.number().optional(),
 });
 
 export const dashboardSettingsSchema = z.object({

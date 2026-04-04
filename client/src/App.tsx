@@ -22,7 +22,14 @@ export default function App() {
         const token = localStorage.getItem('token');
         const userText = localStorage.getItem('user');
         if (token && userText) {
-          setSession({ token, user: JSON.parse(userText) });
+          try {
+            const user = JSON.parse(userText);
+            setSession({ token, user });
+          } catch {
+            // 解析失败，清除损坏的数据
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
         }
       })
       .catch((requestError) => {

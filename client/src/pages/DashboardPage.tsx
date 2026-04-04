@@ -77,7 +77,8 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    fetch('https://wttr.in/?format=j1')
+    const controller = new AbortController();
+    fetch('https://wttr.in/?format=j1', { signal: controller.signal })
       .then((response) => response.json())
       .then((result) => {
         const current = result?.current_condition?.[0];
@@ -86,6 +87,7 @@ export function DashboardPage() {
       .catch(() => {
         setWeatherText('天气暂不可用');
       });
+    return () => controller.abort();
   }, []);
 
   const { preference, setPreference } = useThemeMode();
@@ -126,7 +128,7 @@ export function DashboardPage() {
     return {
       backgroundColor: 'background.default',
     };
-  }, [data?.dashboardSettings, theme.palette.mode, darkOverlayStart, darkOverlayEnd, lightOverlayStart, lightOverlayEnd]);
+  }, [data?.dashboardSettings, theme.palette.mode]);
 
 
 

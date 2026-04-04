@@ -6,6 +6,7 @@ import {
   Chip,
   Container,
   IconButton,
+  InputAdornment,
   Paper,
   Stack,
   Tab,
@@ -47,8 +48,8 @@ export function AdminPage({ session, onLogout }: AdminPageProps) {
   const [error, setError] = useState('');
   const [keyword, setKeyword] = useState('');
   const [studentForm, setStudentForm] = useState<StudentFormState>({ id: 0, student_no: '', name: '', initial_score: 100 });
-  const [ruleForm, setRuleForm] = useState<RuleFormState>({ id: 0, type: 'DEDUCT', name: '', score_value: 2 });
-  const [scoreForm, setScoreForm] = useState<ScoreFormState>({ studentIds: [], ruleId: '', reason: '', changeValue: -2 });
+  const [ruleForm, setRuleForm] = useState<RuleFormState>({ id: 0, type: 'DEDUCT', name: '', score_value: 2, class_score_value: 1 });
+  const [scoreForm, setScoreForm] = useState<ScoreFormState>({ studentIds: [], ruleId: '', reason: '', changeValue: -2, classChangeValue: 0 });
   const [dashboardSettings, setDashboardSettings] = useState<DashboardSettings>(defaultDashboardSettings);
   const [createUserOpen, setCreateUserOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('class');
@@ -56,7 +57,6 @@ export function AdminPage({ session, onLogout }: AdminPageProps) {
   const [classScoreAdjustValue, setClassScoreAdjustValue] = useState(0);
   const [classScoreAdjustReason, setClassScoreAdjustReason] = useState('');
   const [logs, setLogs] = useState<OperationLogEntity[]>([]);
-  const [logsTotal, setLogsTotal] = useState(0);
 
   const { preference, setPreference } = useThemeMode();
   const token = session.token;
@@ -122,7 +122,7 @@ export function AdminPage({ session, onLogout }: AdminPageProps) {
   }
 
   function resetRuleForm() {
-    setRuleForm({ id: 0, type: 'DEDUCT', name: '', score_value: 2 });
+    setRuleForm({ id: 0, type: 'DEDUCT', name: '', score_value: 2, class_score_value: 1 });
   }
 
   function resetUserForm() {
@@ -164,9 +164,9 @@ export function AdminPage({ session, onLogout }: AdminPageProps) {
       setError('请填写加扣分原因。');
       return;
     }
-    await apiFetch('/api/scores/apply', { method: 'POST', body: JSON.stringify({ ...scoreForm, ruleId: scoreForm.ruleId ? Number(scoreForm.ruleId) : null, changeValue: Number(scoreForm.changeValue) }) }, token);
+    await apiFetch('/api/scores/apply', { method: 'POST', body: JSON.stringify({ ...scoreForm, ruleId: scoreForm.ruleId ? Number(scoreForm.ruleId) : null, changeValue: Number(scoreForm.changeValue), classChangeValue: Number(scoreForm.classChangeValue) }) }, token);
     setError('');
-    setScoreForm({ studentIds: [], ruleId: '', reason: '', changeValue: -2 });
+    setScoreForm({ studentIds: [], ruleId: '', reason: '', changeValue: -2, classChangeValue: 0 });
     loadSummary();
   }
 
@@ -252,6 +252,29 @@ export function AdminPage({ session, onLogout }: AdminPageProps) {
     URL.revokeObjectURL(url);
   }
 
+  async function importJson() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        // 处理两种格式：直接是 ExportPayload 或 { exportedAt, data: ExportPayload }
+        const payload = json.data ?? json;
+        await apiFetch('/api/import', { method: 'POST', body: JSON.stringify({ data: payload }) }, token);
+        await loadSummary();
+        setError('');
+        alert('数据导入成功！');
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : '导入失败');
+      }
+    };
+    input.click();
+  }
+
   async function logoutNow() {
     await apiFetch('/api/auth/logout', { method: 'POST' }, token).catch(() => undefined);
     localStorage.removeItem('token');
@@ -262,7 +285,6 @@ export function AdminPage({ session, onLogout }: AdminPageProps) {
     try {
       const result = await apiFetchWithParams<OperationLogsResponse>('/api/logs', { limit: 100, offset: 0 }, {}, token);
       setLogs(result.logs);
-      setLogsTotal(result.total);
     } catch {
       // 忽略错误，操作日志加载失败不影响主功能
     }
@@ -353,7 +375,15 @@ export function AdminPage({ session, onLogout }: AdminPageProps) {
                 placeholder="搜索学生、规则、用户"
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
-                InputProps={{ startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} /> }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ color: 'text.secondary' }} />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
               />
               <Chip label={`学生 ${summary?.students.length ?? 0}`} />
               <Chip label={`规则 ${summary?.scoreRules.length ?? 0}`} />
@@ -378,7 +408,7 @@ export function AdminPage({ session, onLogout }: AdminPageProps) {
           {tab === 3 ? <UsersTab filteredUsers={filteredUsers} currentRole={currentRole} currentUserId={session.user.id} onEdit={startEditUser} onDelete={deleteUser} /> : null}
           {tab === 4 ? <RecordsTab records={summary?.scoreRecords ?? []} studentMap={studentMap} userMap={userMap} canRevoke={canRevoke} canDelete={canDeleteRecords} onRevoke={revokeRecord} onDelete={deleteRecord} /> : null}
 
-          {tab === 5 ? <SettingsTab settingsSection={settingsSection} dashboardSettings={dashboardSettings} canManageSystem={canManageSystem} canReset={canReset} storageMode={summary?.storageMode ?? ''} classInfo={summary?.classInfo ?? null} classScoreAdjustValue={classScoreAdjustValue} classScoreAdjustReason={classScoreAdjustReason} onSectionChange={(section) => { setSettingsSection(section); if (section === 'logs') loadLogs(); }} onDashboardSettingsChange={setDashboardSettings} onSaveDashboard={() => saveDashboard()} onUpdateClassInfo={updateClassInfo} onClassScoreAdjustValueChange={setClassScoreAdjustValue} onClassScoreAdjustReasonChange={setClassScoreAdjustReason} onAdjustClassScore={adjustClassScore} onSwitchStorageMode={switchStorageMode} onExportJson={exportJson} onResetClassData={resetClassData} logs={logs} userMap={userMap} onRollback={rollbackLog} onCancelRollback={cancelRollbackLog} onDeleteLog={deleteLog} onDeleteLogs={deleteLogs} canRollback={canManageSystem} canDeleteLog={canManageSystem} /> : null}
+          {tab === 5 ? <SettingsTab settingsSection={settingsSection} dashboardSettings={dashboardSettings} canManageSystem={canManageSystem} canReset={canReset} storageMode={summary?.storageMode ?? ''} classInfo={summary?.classInfo ?? null} classScoreAdjustValue={classScoreAdjustValue} classScoreAdjustReason={classScoreAdjustReason} onSectionChange={(section) => { setSettingsSection(section); if (section === 'logs') loadLogs(); }} onDashboardSettingsChange={setDashboardSettings} onSaveDashboard={() => saveDashboard()} onUpdateClassInfo={updateClassInfo} onClassScoreAdjustValueChange={setClassScoreAdjustValue} onClassScoreAdjustReasonChange={setClassScoreAdjustReason} onAdjustClassScore={adjustClassScore} onSwitchStorageMode={switchStorageMode} onExportJson={exportJson} onImportJson={importJson} onResetClassData={resetClassData} logs={logs} userMap={userMap} onRollback={rollbackLog} onCancelRollback={cancelRollbackLog} onDeleteLog={deleteLog} onDeleteLogs={deleteLogs} canRollback={canManageSystem} canDeleteLog={canManageSystem} /> : null}
         </Stack>
       </Container>
 

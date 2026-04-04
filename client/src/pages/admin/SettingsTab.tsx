@@ -21,6 +21,7 @@ interface ExtendedSettingsTabProps extends SettingsTabProps {
   canReset: boolean;
   onSwitchStorageMode: (mode: 'sqlite' | 'sqljs') => void;
   onExportJson: () => void;
+  onImportJson: () => void;
   onResetClassData: () => void;
   logs?: any[];
   userMap?: Record<number, string>;
@@ -50,6 +51,7 @@ export function SettingsTab({
   onAdjustClassScore,
   onSwitchStorageMode,
   onExportJson,
+  onImportJson,
   onResetClassData,
   logs,
   userMap,
@@ -139,6 +141,7 @@ export function SettingsTab({
             canReset={canReset}
             onSwitchStorageMode={onSwitchStorageMode}
             onExportJson={onExportJson}
+            onImportJson={onImportJson}
             onResetClassData={onResetClassData}
           />
         ) : null}

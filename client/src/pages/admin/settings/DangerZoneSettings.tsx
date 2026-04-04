@@ -1,5 +1,6 @@
 import { Box, Button, Card, CardContent, Divider, Stack, Typography, Alert } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
+import UploadIcon from '@mui/icons-material/Upload';
 import WarningIcon from '@mui/icons-material/Warning';
 
 interface DangerZoneSettingsProps {
@@ -8,6 +9,7 @@ interface DangerZoneSettingsProps {
   canReset: boolean;
   onSwitchStorageMode: (mode: 'sqlite' | 'sqljs') => void;
   onExportJson: () => void;
+  onImportJson: () => void;
   onResetClassData: () => void;
 }
 
@@ -17,6 +19,7 @@ export function DangerZoneSettings({
   canReset,
   onSwitchStorageMode,
   onExportJson,
+  onImportJson,
   onResetClassData,
 }: DangerZoneSettingsProps) {
 
@@ -67,7 +70,7 @@ export function DangerZoneSettings({
 
           <Box>
             <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-              数据导出
+              数据导入/导出
             </Typography>
             <Stack direction="row" spacing={2} flexWrap="wrap">
               <Button
@@ -78,9 +81,17 @@ export function DangerZoneSettings({
               >
                 导出 JSON
               </Button>
+              <Button
+                variant="outlined"
+                startIcon={<UploadIcon />}
+                onClick={onImportJson}
+                disabled={!canManageSystem}
+              >
+                导入 JSON
+              </Button>
             </Stack>
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              导出会将所有数据保存为 JSON 文件用于备份。
+              导出会将所有数据保存为 JSON 文件用于备份；导入会从 JSON 文件恢复数据。
             </Typography>
           </Box>
 

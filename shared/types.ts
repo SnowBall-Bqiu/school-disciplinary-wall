@@ -23,6 +23,7 @@ export interface ScoreRuleEntity {
   type: ScoreRuleType;
   name: string;
   score_value: number;
+  class_score_value: number;
   created_at: string;
 }
 
@@ -116,6 +117,7 @@ export interface ScoreRulePayload {
   type: ScoreRuleType;
   name: string;
   score_value: number;
+  class_score_value: number;
 }
 
 export interface ScoreActionPayload {
@@ -123,6 +125,7 @@ export interface ScoreActionPayload {
   ruleId?: number | null;
   reason: string;
   changeValue: number;
+  classChangeValue?: number;
 }
 
 export interface ExportPayload {

@@ -80,13 +80,20 @@ export function ScoreWorkbenchTab({ summary, scoreForm, onScoreFormChange, onSub
 
           <TextField select label="引用规则" value={scoreForm.ruleId} onChange={(e) => {
             const selected = summary?.scoreRules.find((item) => String(item.id) === e.target.value);
-            onScoreFormChange((prev) => ({ ...prev, ruleId: e.target.value, reason: selected?.name ?? prev.reason, changeValue: selected ? (selected.type === 'ADD' ? selected.score_value : -selected.score_value) : prev.changeValue }));
+            onScoreFormChange((prev) => ({
+              ...prev,
+              ruleId: e.target.value,
+              reason: selected?.name ?? prev.reason,
+              changeValue: selected ? (selected.type === 'ADD' ? selected.score_value : -selected.score_value) : prev.changeValue,
+              classChangeValue: selected ? (selected.type === 'ADD' ? selected.class_score_value : -selected.class_score_value) : prev.classChangeValue
+            }));
           }}>
             <MenuItem value="">手动填写</MenuItem>
-            {(summary?.scoreRules ?? []).map((rule) => <MenuItem key={rule.id} value={String(rule.id)}>{rule.name}（{rule.type === 'ADD' ? '+' : '-'}{rule.score_value}）</MenuItem>)}
+            {(summary?.scoreRules ?? []).map((rule) => <MenuItem key={rule.id} value={String(rule.id)}>{rule.name}（个人{rule.type === 'ADD' ? '+' : '-'}{rule.score_value} / 班级{rule.type === 'ADD' ? '+' : '-'}{rule.class_score_value}）</MenuItem>)}
           </TextField>
           <TextField label="备注原因" value={scoreForm.reason} onChange={(e) => onScoreFormChange((prev) => ({ ...prev, reason: e.target.value }))} />
           <TextField label="实际分值" type="number" value={scoreForm.changeValue} onChange={(e) => onScoreFormChange((prev) => ({ ...prev, changeValue: Number(e.target.value) }))} />
+          <TextField label="班级扣分" type="number" value={scoreForm.classChangeValue} onChange={(e) => onScoreFormChange((prev) => ({ ...prev, classChangeValue: Number(e.target.value) }))} helperText="正数为加分，负数为扣分" />
           <Button variant="contained" onClick={onSubmit} disabled={scoreForm.studentIds.length === 0}>确认执行</Button>
         </Stack></CardContent></Card>
       </Grid>

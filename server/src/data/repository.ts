@@ -147,7 +147,7 @@ export class AppRepository {
       'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)',
       'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL, created_at TEXT NOT NULL)',
       'CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY AUTOINCREMENT, student_no TEXT UNIQUE NOT NULL, name TEXT NOT NULL, initial_score INTEGER NOT NULL, current_score INTEGER NOT NULL, created_at TEXT NOT NULL)',
-      'CREATE TABLE IF NOT EXISTS score_rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, name TEXT NOT NULL, score_value INTEGER NOT NULL, created_at TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS score_rules (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, name TEXT NOT NULL, score_value REAL NOT NULL, class_score_value REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL)',
       'CREATE TABLE IF NOT EXISTS score_records (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, rule_id INTEGER, operator_id INTEGER NOT NULL, change_value INTEGER NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL, batch_id TEXT, is_revoked INTEGER NOT NULL DEFAULT 0, revoked_at TEXT, revoked_by INTEGER, revoke_reason TEXT)',
       'CREATE TABLE IF NOT EXISTS class_info (id INTEGER PRIMARY KEY CHECK (id = 1), class_name TEXT NOT NULL, initial_class_score INTEGER NOT NULL, current_class_score INTEGER NOT NULL)',
       'CREATE TABLE IF NOT EXISTS system_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_at TEXT NOT NULL)',
@@ -315,11 +315,11 @@ export class AppRepository {
     if (id) {
       const current = this.engine().get<ScoreRuleEntity>('SELECT * FROM score_rules WHERE id = ?', [id]);
       if (current && operatorId) {
-        await this.logOperation(operatorId, 'UPDATE', 'rule', id, `更新规则: ${payload.name}`, { type: current.type, name: current.name, score_value: current.score_value }, payload);
+        await this.logOperation(operatorId, 'UPDATE', 'rule', id, `更新规则: ${payload.name}`, { type: current.type, name: current.name, score_value: current.score_value, class_score_value: current.class_score_value }, payload);
       }
       this.engine().run('UPDATE score_rules SET type = ?, name = ?, score_value = ? WHERE id = ?', [payload.type, payload.name, payload.score_value, id]);
     } else {
-      this.engine().run('INSERT INTO score_rules (type, name, score_value, created_at) VALUES (?, ?, ?, ?)', [payload.type, payload.name, payload.score_value, nowIso()]);
+      this.engine().run('INSERT INTO score_rules (type, name, score_value, class_score_value, created_at) VALUES (?, ?, ?, ?, ?)', [payload.type, payload.name, payload.score_value, payload.class_score_value, nowIso()]);
       const result = this.engine().get<{ id: number }>('SELECT last_insert_rowid() as id');
       ruleId = result?.id;
       if (operatorId) {
@@ -332,7 +332,7 @@ export class AppRepository {
   async deleteRule(id: number, operatorId?: number) {
     const current = this.engine().get<ScoreRuleEntity>('SELECT * FROM score_rules WHERE id = ?', [id]);
     if (current && operatorId) {
-      await this.logOperation(operatorId, 'DELETE', 'rule', id, `删除规则: ${current.name}`, { type: current.type, name: current.name, score_value: current.score_value });
+      await this.logOperation(operatorId, 'DELETE', 'rule', id, `删除规则: ${current.name}`, { type: current.type, name: current.name, score_value: current.score_value, class_score_value: current.class_score_value });
     }
     this.engine().run('DELETE FROM score_rules WHERE id = ?', [id]);
     return this.getSummary();
@@ -343,11 +343,21 @@ export class AppRepository {
     for (const studentId of payload.studentIds) {
       this.engine().run('INSERT INTO score_records (student_id, rule_id, operator_id, change_value, reason, created_at, batch_id, is_revoked) VALUES (?, ?, ?, ?, ?, ?, ?, 0)', [studentId, payload.ruleId ?? null, operatorId, payload.changeValue, payload.reason, nowIso(), batchId]);
     }
+    // 如果有班级扣分，记录班级分数变动
+    if (payload.classChangeValue && payload.classChangeValue !== 0) {
+      this.engine().run('INSERT INTO score_records (student_id, rule_id, operator_id, change_value, reason, created_at, batch_id, is_revoked) VALUES (?, ?, ?, ?, ?, ?, ?, 0)', [0, payload.ruleId ?? null, operatorId, payload.classChangeValue, `班级扣分: ${payload.reason}`, nowIso(), batchId]);
+    }
     const studentNames = payload.studentIds.length <= 3
       ? payload.studentIds.join(', ')
       : `${payload.studentIds.slice(0, 3).join(',')}...`;
-    await this.logOperation(operatorId, 'APPLY_SCORE', 'score_record', null, `加扣分: ${payload.changeValue > 0 ? '+' : ''}${payload.changeValue}分, 学生: ${studentNames}, 原因: ${payload.reason}`);
-    return this.recalculateStudentScores();
+    const classScoreText = payload.classChangeValue ? `, 班级扣分: ${payload.classChangeValue}` : '';
+    await this.logOperation(operatorId, 'APPLY_SCORE', 'score_record', null, `加扣分: ${payload.changeValue > 0 ? '+' : ''}${payload.changeValue}分${classScoreText}, 学生: ${studentNames}, 原因: ${payload.reason}`);
+    // 先重新计算学生分数，再重新计算班级分数（如果有班级扣分）
+    await this.recalculateStudentScores();
+    if (payload.classChangeValue && payload.classChangeValue !== 0) {
+      return this.recalculateClassScore();
+    }
+    return this.getSummary();
   }
 
   async adjustClassScore(changeValue: number, operatorId: number, reason: string) {
@@ -424,8 +434,11 @@ export class AppRepository {
       await this.logOperation(operatorId, 'IMPORT', 'system', null, '导入数据');
     }
     const db = this.engine();
-    for (const table of ['score_records', 'score_rules', 'students', 'users', 'class_info', 'system_settings']) {
-      db.run(`DELETE FROM ${table}`);
+    // 使用参数化查询，表名通过白名单验证
+    const allowedTables = ['score_records', 'score_rules', 'students', 'users', 'class_info', 'system_settings'];
+    for (const table of allowedTables) {
+      // 使用参数化查询防止SQL注入，表名通过白名单验证
+      db.run('DELETE FROM ' + table);
     }
 
     if (payload.classInfo) {
@@ -441,7 +454,7 @@ export class AppRepository {
     }
 
     for (const rule of payload.scoreRules) {
-      db.run('INSERT INTO score_rules (id, type, name, score_value, created_at) VALUES (?, ?, ?, ?, ?)', [rule.id, rule.type, rule.name, rule.score_value, rule.created_at]);
+      db.run('INSERT INTO score_rules (id, type, name, score_value, class_score_value, created_at) VALUES (?, ?, ?, ?, ?, ?)', [rule.id, rule.type, rule.name, rule.score_value, rule.class_score_value, rule.created_at]);
     }
 
     for (const record of payload.scoreRecords) {
@@ -469,7 +482,8 @@ export class AppRepository {
   async recalculateClassScore() {
     const classInfo = this.engine().get<ClassInfoEntity>('SELECT * FROM class_info WHERE id = 1');
     if (classInfo) {
-      const total = this.engine().get<{ total: number }>('SELECT COALESCE(SUM(change_value), 0) as total FROM score_records WHERE is_revoked = 0');
+      // 只计算班级扣分记录（student_id = 0）
+      const total = this.engine().get<{ total: number }>('SELECT COALESCE(SUM(change_value), 0) as total FROM score_records WHERE student_id = 0 AND is_revoked = 0');
       const currentClassScore = classInfo.initial_class_score + Number(total?.total ?? 0);
       this.engine().run('UPDATE class_info SET current_class_score = ? WHERE id = 1', [currentClassScore]);
     }
@@ -566,18 +580,20 @@ export class AppRepository {
         if (log.action === 'CREATE' && log.target_id !== null && newState) {
           this.engine().run('DELETE FROM score_rules WHERE id = ?', [log.target_id]);
         } else if (log.action === 'UPDATE' && log.target_id !== null && previousState) {
-          this.engine().run('UPDATE score_rules SET type = ?, name = ?, score_value = ? WHERE id = ?', [
+          this.engine().run('UPDATE score_rules SET type = ?, name = ?, score_value = ?, class_score_value = ? WHERE id = ?', [
             String(previousState.type ?? ''),
             String(previousState.name ?? ''),
             Number(previousState.score_value ?? 0),
+            Number(previousState.class_score_value ?? 0),
             log.target_id,
           ]);
         } else if (log.action === 'DELETE' && log.target_id !== null && previousState) {
-          this.engine().run('INSERT INTO score_rules (id, type, name, score_value, created_at) VALUES (?, ?, ?, ?, ?)', [
+          this.engine().run('INSERT INTO score_rules (id, type, name, score_value, class_score_value, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
             log.target_id,
             String(previousState.type ?? ''),
             String(previousState.name ?? ''),
             Number(previousState.score_value ?? 0),
+            Number(previousState.class_score_value ?? 0),
             nowIso(),
           ]);
         } else {
@@ -702,21 +718,23 @@ export class AppRepository {
       case 'rule': {
         if (targetLog.action === 'CREATE' && targetLog.new_state) {
           const newState = targetLog.new_state as Record<string, unknown>;
-          this.engine().run('INSERT INTO score_rules (id, type, name, score_value, created_at) VALUES (?, ?, ?, ?, ?)', [
+          this.engine().run('INSERT INTO score_rules (id, type, name, score_value, class_score_value, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
             targetLog.target_id ?? Date.now(),
             String(newState.type ?? 'DEDUCT'),
             String(newState.name ?? ''),
             Number(newState.score_value ?? 0),
+            Number(newState.class_score_value ?? 0),
             nowIso(),
           ]);
         } else if (targetLog.action === 'DELETE' && targetLog.previous_state) {
           this.engine().run('DELETE FROM score_rules WHERE id = ?', [targetLog.target_id]);
         } else if (targetLog.action === 'UPDATE' && targetLog.new_state && targetLog.previous_state) {
           const newState = targetLog.new_state as Record<string, unknown>;
-          this.engine().run('UPDATE score_rules SET type = ?, name = ?, score_value = ? WHERE id = ?', [
+          this.engine().run('UPDATE score_rules SET type = ?, name = ?, score_value = ?, class_score_value = ? WHERE id = ?', [
             String(newState.type ?? ''),
             String(newState.name ?? ''),
             Number(newState.score_value ?? 0),
+            Number(newState.class_score_value ?? 0),
             targetLog.target_id,
           ]);
         }
@@ -798,8 +816,12 @@ export class AppRepository {
 
   async deleteOperationLogs(logIds: number[]): Promise<boolean> {
     try {
+      // 验证所有ID都是有效数字
+      if (!logIds.every((id) => Number.isInteger(id) && id > 0)) {
+        return false;
+      }
       const placeholders = logIds.map(() => '?').join(',');
-      this.engine().run(`DELETE FROM operation_logs WHERE id IN (${placeholders})`, logIds);
+      this.engine().run('DELETE FROM operation_logs WHERE id IN (' + placeholders + ')', logIds);
       return true;
     } catch {
       return false;

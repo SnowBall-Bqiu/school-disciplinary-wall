@@ -30,7 +30,7 @@ export interface SummaryResponse {
   } | null;
   users: Array<{ id: number; username: string; role: UserRole; created_at: string }>;
   students: Array<{ id: number; student_no: string; name: string; initial_score: number; current_score: number; created_at: string }>;
-  scoreRules: Array<{ id: number; type: 'ADD' | 'DEDUCT'; name: string; score_value: number; created_at: string }>;
+  scoreRules: Array<{ id: number; type: 'ADD' | 'DEDUCT'; name: string; score_value: number; class_score_value: number; created_at: string }>;
   scoreRecords: ScoreRecordEntity[];
   settings: Record<string, string>;
 }

@@ -32,7 +32,7 @@ usersRouter.post('/users/officer', requirePermission('users:create:officer'), as
   }
 });
 
-usersRouter.put('/users/:id', async (req, res, next) => {
+usersRouter.put('/users/:id', requirePermission('users:update'), async (req, res, next) => {
   const id = Number(req.params.id);
   const parsed = updateUserSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -56,7 +56,7 @@ usersRouter.put('/users/:id', async (req, res, next) => {
   }
 });
 
-usersRouter.delete('/users/:id', async (req, res) => {
+usersRouter.delete('/users/:id', requirePermission('users:delete'), async (req, res) => {
   const id = Number(req.params.id);
   const summary = await repository.getSummary();
   const user = summary.users.find((item: { id: number; role: string }) => item.id === id);

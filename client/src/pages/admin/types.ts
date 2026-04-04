@@ -15,6 +15,7 @@ export interface RuleFormState {
   type: ScoreRuleType;
   name: string;
   score_value: number;
+  class_score_value: number;
 }
 
 export interface ScoreFormState {
@@ -22,6 +23,7 @@ export interface ScoreFormState {
   ruleId: string;
   reason: string;
   changeValue: number;
+  classChangeValue: number;
 }
 
 export interface UserFormState {
@@ -95,9 +97,11 @@ export interface SettingsTabProps {
   settingsSection: SettingsSection;
   dashboardSettings: DashboardSettings;
   canManageSystem: boolean;
+  canReset: boolean;
   classInfo: { class_name: string; initial_class_score: number; current_class_score: number } | null;
   classScoreAdjustValue: number;
   classScoreAdjustReason: string;
+  storageMode: string;
   onSectionChange: (section: SettingsSection) => void;
   onDashboardSettingsChange: React.Dispatch<React.SetStateAction<DashboardSettings>>;
   onSaveDashboard: () => void;
@@ -105,6 +109,10 @@ export interface SettingsTabProps {
   onClassScoreAdjustValueChange: (value: number) => void;
   onClassScoreAdjustReasonChange: (reason: string) => void;
   onAdjustClassScore: () => void;
+  onSwitchStorageMode: (mode: 'sqlite' | 'sqljs') => void;
+  onExportJson: () => void;
+  onImportJson: () => void;
+  onResetClassData: () => void;
   logs?: any[];
   userMap?: Record<number, string>;
   onRollback?: (id: number) => void;
